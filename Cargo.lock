@@ -1730,6 +1730,7 @@ version = "0.1.0"
 dependencies = [
  "async-channel",
  "axum",
+ "bytes",
  "clap",
  "eth2",
  "eth2_network_config",

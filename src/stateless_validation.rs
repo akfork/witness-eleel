@@ -1,10 +1,11 @@
 use std::time::Duration;
 
+use bytes::Bytes;
 use execution_layer::{
     engines::Engine,
     json_structures::{JsonExecutionPayload, JsonPayloadStatusV1Status},
-    Error as ExecutionLayerError, EthSpec, ExecutionBlockHash,
-    ExecutionPayload, NewPayloadRequest, NewPayloadRequestDeneb,
+    Error as ExecutionLayerError, EthSpec, ExecutionBlockHash, ExecutionPayload, NewPayloadRequest,
+    NewPayloadRequestDeneb,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -37,15 +38,6 @@ var statelessPayloadStatusV1 = {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct JsonStatelessWitnessV1 {
-    // TODO: maybe this should be Vec<Value>?
-    pub headers: serde_json::Value,
-    pub codes: serde_json::Value,
-    pub state: serde_json::Value,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct JsonStatelessPayloadStatusV1 {
     pub status: JsonPayloadStatusV1Status,
     pub state_root: ExecutionBlockHash,
@@ -59,7 +51,7 @@ pub struct JsonPayloadStatusWithWitnessV1 {
     pub status: JsonPayloadStatusV1Status,
     pub latest_valid_hash: Option<ExecutionBlockHash>,
     pub validation_error: Option<String>,
-    pub witness: JsonStatelessWitnessV1,
+    pub witness: Bytes,
 }
 
 // #[derive(Clone, Copy, Debug)]
@@ -101,7 +93,7 @@ impl StatelessEngine {
     pub async fn stateless_execution<E: EthSpec>(
         &self,
         new_payload_request: NewPayloadRequest<'_, E>,
-        witness: JsonStatelessWitnessV1,
+        witness: Bytes,
     ) -> Result<JsonStatelessPayloadStatusV1, ExecutionLayerError> {
         // Assume that stateless capabilities exist for now
         // let engine_capabilities = self.stateless_engine.get_engine_capabilities(None).await?;
@@ -165,7 +157,7 @@ impl StatelessEngine {
     pub async fn stateless_execution_v2<E: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<E>,
-        witness: JsonStatelessWitnessV1,
+        witness: Bytes,
     ) -> Result<JsonStatelessPayloadStatusV1, ExecutionLayerError> {
         let params = json!([JsonExecutionPayload::from(execution_payload), witness]);
 
@@ -185,7 +177,7 @@ impl StatelessEngine {
     pub async fn stateless_execution_v3<E: EthSpec>(
         &self,
         new_payload_request_deneb: NewPayloadRequestDeneb<'_, E>,
-        witness: JsonStatelessWitnessV1,
+        witness: Bytes,
     ) -> Result<JsonStatelessPayloadStatusV1, ExecutionLayerError> {
         let params = json!([
             JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
