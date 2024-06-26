@@ -1,4 +1,6 @@
 //! Handler for new payload.
+use crate::stateless_validation::{JsonPayloadStatusWithWitnessV1, JsonStatelessPayloadStatusV1};
+use crate::types::{ErrorCode, JsonError};
 use crate::{
     multiplexer::{Multiplexer, NewPayloadCacheEntry},
     types::{
@@ -34,39 +36,155 @@ impl<E: EthSpec> Multiplexer<E> {
         let status = if let Some(status) = self.get_cached_payload_status(&block_hash, true).await {
             status
         } else {
-            // Send payload to the real EL.
-            match self.engine.api.new_payload(new_payload_request).await {
-                Ok(status) => {
-                    let json_status = JsonPayloadStatusV1::from(status);
-
-                    // Update newPayload cache.
-                    self.new_payload_cache.lock().await.put(
-                        block_hash,
-                        NewPayloadCacheEntry {
-                            status: json_status.clone(),
-                            block_number,
-                        },
-                    );
-
-                    // Update payload builder.
-                    self.register_canonical_payload(&execution_payload, json_status.status)
-                        .await;
-
-                    json_status
+            if !self.stateless_engines.is_empty() {
+                match self
+                    .engine
+                    .new_payload_with_witness(new_payload_request.clone())
+                    .await
+                {
+                    Ok(resp) => {
+                        self.handle_stateless_validation(new_payload_request, resp)
+                            .await?
+                    }
+                    Err(e) => {
+                        // Return an error to the controlling CL.
+                        // TODO: consider flag to return SYNCING here (after block hash verif).
+                        tracing::warn!(error = ?e, "error during newPayload");
+                        return Err(ErrorResponse::invalid_request(
+                            id,
+                            "payload verification failed: see eleel logs".to_string(),
+                        ));
+                    }
                 }
-                Err(e) => {
-                    // Return an error to the controlling CL.
-                    // TODO: consider flag to return SYNCING here (after block hash verif).
-                    tracing::warn!(error = ?e, "error during newPayload");
-                    return Err(ErrorResponse::invalid_request(
-                        id,
-                        "payload verification failed: see eleel logs".to_string(),
-                    ));
+            } else {
+                // Send payload to the real EL.
+                match self
+                    .engine
+                    .stateless_engine
+                    .api
+                    .new_payload(new_payload_request)
+                    .await
+                {
+                    Ok(status) => {
+                        let json_status = JsonPayloadStatusV1::from(status);
+
+                        // Update newPayload cache.
+                        self.new_payload_cache.lock().await.put(
+                            block_hash,
+                            NewPayloadCacheEntry {
+                                status: json_status.clone(),
+                                block_number,
+                            },
+                        );
+
+                        // Update payload builder.
+                        self.register_canonical_payload(&execution_payload, json_status.status)
+                            .await;
+
+                        json_status
+                    }
+                    Err(e) => {
+                        // Return an error to the controlling CL.
+                        // TODO: consider flag to return SYNCING here (after block hash verif).
+                        tracing::warn!(error = ?e, "error during newPayload");
+                        return Err(ErrorResponse::invalid_request(
+                            id,
+                            "payload verification failed: see eleel logs".to_string(),
+                        ));
+                    }
                 }
             }
         };
 
         Response::new(id, status)
+    }
+
+    /// Takes the response from the primary EE and runs it through stateless validation
+    /// for all stateless EEs.
+    ///
+    /// If the results disagree, then returns an error.
+    pub async fn handle_stateless_validation(
+        &self,
+        new_payload_request: NewPayloadRequest<'_, E>,
+        status_with_witness: JsonPayloadStatusWithWitnessV1,
+    ) -> Result<JsonPayloadStatusV1, ErrorResponse> {
+        tracing::info!("handling stateless validation");
+        // The primary validation was successful here so the state and receipts root should match
+        // the new payload one.
+        let primary_state_root = new_payload_request.execution_payload_ref().state_root();
+        let primary_receipts_root = new_payload_request.execution_payload_ref().receipts_root();
+        let primary_status = status_with_witness.status;
+        let witness = status_with_witness.witness;
+        let mut result: Option<JsonStatelessPayloadStatusV1> = None;
+        for (i, stateless_engine) in self.stateless_engines.iter().enumerate() {
+            match stateless_engine
+                .stateless_execution(new_payload_request.clone(), witness.clone())
+                .await
+            {
+                Err(e) => {
+                    // Return early logging the error
+                    tracing::warn!(error=?e, "error during stateless validation from {}", i);
+                    return Err(ErrorResponse {
+                        error: JsonError {
+                            code: ErrorCode::InvalidRequest,
+                            message: format!(
+                                "stateless validation error {:?} from engine {}",
+                                e, i
+                            ),
+                        },
+                        jsonrpc: "2.0".into(),
+                        id: JsonValue::Number(1.into()),
+                    });
+                }
+                Ok(resp) => {
+                    if let Some(ref status) = result {
+                        // TODO: check something wrt validation error as well
+                        if resp.receipts_root != status.receipts_root
+                            || resp.state_root != status.state_root
+                            || resp.status != status.status
+                        {
+                            return Err(ErrorResponse {
+                                error: JsonError {
+                                    code: ErrorCode::InvalidRequest,
+                                    message: format!(
+                                        "stateless validation error engines disagree at {}",
+                                        i
+                                    ),
+                                },
+                                jsonrpc: "2.0".into(),
+                                id: JsonValue::Number(1.into()),
+                            });
+                        }
+                    } else {
+                        result = Some(resp);
+                    }
+                }
+            }
+        }
+
+        // Now check the agreed upon response with the primary EE response
+        if let Some(status) = result {
+            if status.state_root.0 != primary_state_root
+                || status.receipts_root.0 != primary_receipts_root
+                || status.status != primary_status
+            {
+                return Err(ErrorResponse {
+                    error: JsonError {
+                        code: ErrorCode::InvalidRequest,
+                        message: "stateless validation disagree with primary engine".to_string(),
+                    },
+                    jsonrpc: "2.0".into(),
+                    id: JsonValue::Number(1.into()),
+                });
+            }
+        }
+
+        // Everything agreed, send back primary response
+        Ok(JsonPayloadStatusV1 {
+            latest_valid_hash: status_with_witness.latest_valid_hash,
+            status: status_with_witness.status,
+            validation_error: status_with_witness.validation_error,
+        })
     }
 
     pub async fn handle_new_payload(&self, request: Request) -> Result<Response, ErrorResponse> {

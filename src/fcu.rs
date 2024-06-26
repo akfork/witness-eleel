@@ -53,6 +53,7 @@ impl<E: EthSpec> Multiplexer<E> {
             // Do not send payload attributes to the EL (for now).
             match self
                 .engine
+                .stateless_engine
                 .notify_forkchoice_updated(fcu.clone().into(), None, &self.log)
                 .await
             {

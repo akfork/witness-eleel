@@ -79,6 +79,11 @@ pub struct Config {
     /// Maximum size of JSON-RPC message to accept from any connected consensus node.
     #[arg(long, value_name = "MEGABYTES", default_value = "128")]
     pub body_limit_mb: usize,
+
+    /// Comma separated json rpc urls for clients that are validating payloads by witness generated from
+    /// primary execution clients.
+    #[arg(long, value_name = "URL")]
+    pub stateless_validation_clients: String,
 }
 
 #[derive(Deserialize, Serialize)]

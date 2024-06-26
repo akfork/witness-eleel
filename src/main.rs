@@ -38,6 +38,7 @@ mod multiplexer;
 mod new_payload;
 mod payload_builder;
 mod types;
+mod stateless_validation;
 
 // TODO: allow other specs
 type E = MainnetEthSpec;

@@ -20,6 +20,7 @@ impl<E: EthSpec> Multiplexer<E> {
         let timeout = Duration::from_secs(1);
         let chain_id = self
             .engine
+            .stateless_engine
             .api
             .get_chain_id(timeout)
             .await
@@ -39,6 +40,7 @@ impl<E: EthSpec> Multiplexer<E> {
         let max_age = Duration::from_secs(15 * 60);
         let engine_capabilities = self
             .engine
+            .stateless_engine
             .get_engine_capabilities(Some(max_age))
             .await
             .map_err(|e| ErrorResponse::parse_error_generic(id.clone(), format!("{e:?}")))?;
@@ -53,6 +55,7 @@ impl<E: EthSpec> Multiplexer<E> {
 
         let result: JsonValue = self
             .engine
+            .stateless_engine
             .api
             .rpc_request(&request.method, request.params, timeout)
             .await

@@ -4,6 +4,7 @@
 use crate::{
     config::Config,
     payload_builder::PayloadBuilder,
+    stateless_validation::StatelessEngine,
     types::{Auth, Engine, JsonForkchoiceStateV1, JsonPayloadStatusV1, TaskExecutor},
 };
 use eth2::types::{ChainSpec, EthSpec, ExecutionBlockHash};
@@ -18,7 +19,9 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 
 pub struct Multiplexer<E: EthSpec> {
-    pub engine: Engine,
+    /// Primary EE that generates the witnesses
+    pub engine: StatelessEngine,
+    pub stateless_engines: Vec<StatelessEngine>,
     pub fcu_cache: Mutex<LruCache<JsonForkchoiceStateV1, JsonPayloadStatusV1>>,
     pub new_payload_cache: Mutex<LruCache<ExecutionBlockHash, NewPayloadCacheEntry>>,
     pub justified_block_cache: Mutex<LruCache<ExecutionBlockHash, ()>>,
@@ -38,7 +41,7 @@ pub struct NewPayloadCacheEntry {
 
 impl<E: EthSpec> Multiplexer<E> {
     pub async fn new(config: Config, executor: TaskExecutor, log: Logger) -> Result<Self, String> {
-        let engine: Engine = {
+        let engine: StatelessEngine = {
             let jwt_secret_path = PathBuf::from(&config.ee_jwt_secret);
             let jwt_id = Some("eleel".to_string());
             let jwt_version = None;
@@ -53,7 +56,9 @@ impl<E: EthSpec> Multiplexer<E> {
             let api = HttpJsonRpc::new_with_auth(url, auth, execution_timeout_multiplier)
                 .map_err(|e| format!("Error connecting to EL: {e:?}"))?;
 
-            Engine::new(api, executor, &log)
+            StatelessEngine {
+                stateless_engine: Engine::new(api, executor.clone(), &log),
+            }
         };
 
         let fcu_cache = Mutex::new(LruCache::new(
@@ -90,6 +95,27 @@ impl<E: EthSpec> Multiplexer<E> {
             .ok_or("no genesis state")?;
         let genesis_time = genesis_state.genesis_time();
 
+        let mut stateless_engines = vec![];
+        for stateless_ee_url in config.stateless_validation_clients.split(",") {
+            let jwt_secret_path = PathBuf::from(&config.ee_jwt_secret);
+            let jwt_id = Some("eleel".to_string());
+            let jwt_version = None;
+
+            let execution_timeout_multiplier = Some(2);
+
+            let auth = Auth::new_with_path(jwt_secret_path, jwt_id, jwt_version)
+                .map_err(|e| format!("JWT secret error: {e:?}"))?;
+
+            let url = FromStr::from_str(&stateless_ee_url)
+                .map_err(|e| format!("Invalid stateless EL URL: {e:?}"))?;
+            let api = HttpJsonRpc::new_with_auth(url, auth, execution_timeout_multiplier)
+                .map_err(|e| format!("Error connecting to EL: {e:?}"))?;
+
+            stateless_engines.push(StatelessEngine {
+                stateless_engine: Engine::new(api, executor.clone(), &log),
+            });
+        }
+
         Ok(Self {
             engine,
             fcu_cache,
@@ -101,6 +127,7 @@ impl<E: EthSpec> Multiplexer<E> {
             spec,
             config,
             log,
+            stateless_engines,
             _phantom: PhantomData,
         })
     }
