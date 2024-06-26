@@ -83,7 +83,7 @@ pub struct Config {
     /// Comma separated json rpc urls for clients that are validating payloads by witness generated from
     /// primary execution clients.
     #[arg(long, value_name = "URL")]
-    pub stateless_validation_clients: String,
+    pub stateless_validation_clients: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
