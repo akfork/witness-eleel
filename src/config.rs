@@ -29,7 +29,7 @@ pub struct Config {
     ///
     /// See docs for TOML file format.
     #[arg(long, value_name = "PATH")]
-    pub client_jwt_secrets: PathBuf,
+    pub client_jwt_secrets: Option<PathBuf>,
     /// Number of recent newPayload messages to cache in memory.
     #[arg(long, value_name = "N", default_value = "64")]
     pub new_payload_cache_size: usize,

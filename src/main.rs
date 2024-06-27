@@ -64,7 +64,7 @@ async fn main() {
     let listen_address = config.listen_address;
     let listen_port = config.listen_port;
     let controller_jwt_secret = jwt_secret_from_path(&config.controller_jwt_secret).unwrap();
-    let client_jwt_collection = KeyCollection::load(&config.client_jwt_secrets).unwrap();
+    let client_jwt_collection = KeyCollection::load(config.client_jwt_secrets.as_ref()).unwrap();
     let multiplexer = Multiplexer::<E>::new(config, executor, log).await.unwrap();
     let app_state = Arc::new(AppState {
         controller_jwt_secret,

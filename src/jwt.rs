@@ -5,7 +5,7 @@ use jwt::{Error, Header, Token, Unverified, Verified, VerifyWithKey};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub type VerifiedToken = Token<Header, Claims, Verified>;
 pub type UnverifiedToken<'a> = Token<Header, Claims, Unverified<'a>>;
@@ -72,7 +72,12 @@ impl KeyCollection {
         Err("No matching JWT secret found".into())
     }
 
-    pub fn load(path: &Path) -> Result<Self, String> {
+    pub fn load(path: Option<&PathBuf>) -> Result<Self, String> {
+        let Some(path) = path else {
+            return Ok(Self {
+                secrets: HashMap::new(),
+            });
+        };
         let raw = ClientJwtSecrets::from_file(path)?;
 
         let mut secrets = HashMap::with_capacity(raw.secrets.len());
