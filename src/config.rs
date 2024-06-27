@@ -54,6 +54,9 @@ pub struct Config {
     /// Network that the consensus and execution nodes are operating on.
     #[arg(long, value_name = "NAME", default_value = "mainnet")]
     pub network: Network,
+    /// Path to a testnet directory
+    #[arg(long, value_name = "NAME")]
+    pub testnet_dir: Option<PathBuf>,
     /// Maximum time that a consensus node should wait for a newPayload response from the cache.
     ///
     /// We expect that the controlling consensus node and primary execution node will take some

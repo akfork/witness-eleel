@@ -49,7 +49,7 @@ impl<E: EthSpec> Multiplexer<E> {
                     Err(e) => {
                         // Return an error to the controlling CL.
                         // TODO: consider flag to return SYNCING here (after block hash verif).
-                        tracing::warn!(error = ?e, "error during newPayload");
+                        tracing::warn!(error = ?e, "error during newPayloadWithWitness");
                         return Err(ErrorResponse::invalid_request(
                             id,
                             "payload verification failed: see eleel logs".to_string(),
@@ -114,7 +114,15 @@ impl<E: EthSpec> Multiplexer<E> {
         let primary_state_root = new_payload_request.execution_payload_ref().state_root();
         let primary_receipts_root = new_payload_request.execution_payload_ref().receipts_root();
         let primary_status = status_with_witness.status;
-        let witness = status_with_witness.witness;
+        let Some(witness) = status_with_witness.witness else {
+            tracing::debug!("no witness returned for newpayloadwithwitness response");
+            return Ok(JsonPayloadStatusV1 {
+                latest_valid_hash: status_with_witness.latest_valid_hash,
+                status: status_with_witness.status,
+                validation_error: status_with_witness.validation_error,
+            });
+        };
+
         let mut result: Option<JsonStatelessPayloadStatusV1> = None;
         for (i, stateless_engine) in self.stateless_engines.iter().enumerate() {
             match stateless_engine
@@ -137,6 +145,7 @@ impl<E: EthSpec> Multiplexer<E> {
                     });
                 }
                 Ok(resp) => {
+                    tracing::debug!("Received a response for stateless validation {:?}", resp);
                     if let Some(ref status) = result {
                         // TODO: check something wrt validation error as well
                         if resp.receipts_root != status.receipts_root

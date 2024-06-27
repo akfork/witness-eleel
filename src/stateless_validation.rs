@@ -1,21 +1,20 @@
 use std::time::Duration;
 
-use bytes::Bytes;
 use execution_layer::{
     engines::Engine,
     json_structures::{JsonExecutionPayload, JsonPayloadStatusV1Status},
-    Error as ExecutionLayerError, EthSpec, ExecutionBlockHash, ExecutionPayload, NewPayloadRequest,
-    NewPayloadRequestDeneb,
+    Error as ExecutionLayerError, EthSpec, ExecutionBlockHash, ExecutionPayload, Hash256,
+    NewPayloadRequest, NewPayloadRequestDeneb,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-pub const ENGINE_NEW_PAYLOAD_WITH_WITNESS_V2: &str = "engine_newPayloadV2";
-pub const ENGINE_NEW_PAYLOAD_WITH_WITNESS_V3: &str = "engine_newPayloadV3";
+pub const ENGINE_NEW_PAYLOAD_WITH_WITNESS_V2: &str = "engine_newPayloadWithWitnessV2";
+pub const ENGINE_NEW_PAYLOAD_WITH_WITNESS_V3: &str = "engine_newPayloadWithWitnessV3";
 pub const ENGINE_NEW_PAYLOAD_TIMEOUT: Duration = Duration::from_secs(8);
 
 pub const ENGINE_STATELESS_EXECUTION_V2: &str = "engine_executeStatelessPayloadV2";
-pub const ENGINE_STATELESS_EXECUTION_V3: &str = "engine_executeStatelessPayloadV2";
+pub const ENGINE_STATELESS_EXECUTION_V3: &str = "engine_executeStatelessPayloadV3";
 pub const ENGINE_STATELESS_EXECUTION_TIMEOUT: Duration = Duration::from_secs(8);
 
 /*
@@ -37,6 +36,9 @@ var statelessPayloadStatusV1 = {
 */
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Witness(#[serde(with = "serde_utils::hex_vec")] pub Vec<u8>);
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JsonStatelessPayloadStatusV1 {
     pub status: JsonPayloadStatusV1Status,
@@ -51,7 +53,7 @@ pub struct JsonPayloadStatusWithWitnessV1 {
     pub status: JsonPayloadStatusV1Status,
     pub latest_valid_hash: Option<ExecutionBlockHash>,
     pub validation_error: Option<String>,
-    pub witness: Bytes,
+    pub witness: Option<Witness>,
 }
 
 // #[derive(Clone, Copy, Debug)]
@@ -93,18 +95,31 @@ impl StatelessEngine {
     pub async fn stateless_execution<E: EthSpec>(
         &self,
         new_payload_request: NewPayloadRequest<'_, E>,
-        witness: Bytes,
+        witness: Witness,
     ) -> Result<JsonStatelessPayloadStatusV1, ExecutionLayerError> {
         // Assume that stateless capabilities exist for now
         // let engine_capabilities = self.stateless_engine.get_engine_capabilities(None).await?;
-        match new_payload_request {
+        match &new_payload_request {
             NewPayloadRequest::Bellatrix(_) | NewPayloadRequest::Capella(_) => {
-                self.stateless_execution_v2(new_payload_request.into_execution_payload(), witness)
-                    .await
+                let mut payload = new_payload_request.into_execution_payload();
+                *payload.state_root_mut() = Hash256::zero();
+                *payload.receipts_root_mut() = Hash256::zero();
+                self.stateless_execution_v2(payload, witness).await
             }
             NewPayloadRequest::Deneb(new_payload_request_deneb) => {
-                self.stateless_execution_v3(new_payload_request_deneb, witness)
-                    .await
+                let versioned_hashes = new_payload_request_deneb.versioned_hashes.clone();
+                let parent_beacon_block_root = new_payload_request_deneb.parent_beacon_block_root;
+
+                let mut payload = new_payload_request.into_execution_payload();
+                *payload.state_root_mut() = Hash256::zero();
+                *payload.receipts_root_mut() = Hash256::zero();
+                self.stateless_execution_v3(
+                    payload,
+                    versioned_hashes,
+                    parent_beacon_block_root,
+                    witness,
+                )
+                .await
             }
             NewPayloadRequest::Electra(_) => {
                 todo!()
@@ -157,7 +172,7 @@ impl StatelessEngine {
     pub async fn stateless_execution_v2<E: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<E>,
-        witness: Bytes,
+        witness: Witness,
     ) -> Result<JsonStatelessPayloadStatusV1, ExecutionLayerError> {
         let params = json!([JsonExecutionPayload::from(execution_payload), witness]);
 
@@ -176,13 +191,15 @@ impl StatelessEngine {
 
     pub async fn stateless_execution_v3<E: EthSpec>(
         &self,
-        new_payload_request_deneb: NewPayloadRequestDeneb<'_, E>,
-        witness: Bytes,
+        execution_payload: ExecutionPayload<E>,
+        versioned_hashes: Vec<Hash256>,
+        parent_beacon_block_root: Hash256,
+        witness: Witness,
     ) -> Result<JsonStatelessPayloadStatusV1, ExecutionLayerError> {
         let params = json!([
-            JsonExecutionPayload::V3(new_payload_request_deneb.execution_payload.clone().into()),
-            new_payload_request_deneb.versioned_hashes,
-            new_payload_request_deneb.parent_beacon_block_root,
+            JsonExecutionPayload::from(execution_payload),
+            versioned_hashes,
+            parent_beacon_block_root,
             witness
         ]);
 

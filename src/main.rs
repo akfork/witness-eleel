@@ -15,7 +15,9 @@ use axum::{
     Json, Router, TypedHeader,
 };
 use clap::Parser;
+use config::Network;
 use eth2::types::MainnetEthSpec;
+use eth2_network_config::Eth2NetworkConfig;
 use execution_layer::http::{
     ENGINE_EXCHANGE_CAPABILITIES, ENGINE_FORKCHOICE_UPDATED_V1, ENGINE_FORKCHOICE_UPDATED_V2,
     ENGINE_FORKCHOICE_UPDATED_V3, ENGINE_GET_PAYLOAD_BODIES_BY_HASH_V1,
@@ -37,8 +39,8 @@ mod meta;
 mod multiplexer;
 mod new_payload;
 mod payload_builder;
-mod types;
 mod stateless_validation;
+mod types;
 
 // TODO: allow other specs
 type E = MainnetEthSpec;
@@ -52,7 +54,11 @@ async fn main() {
     let log = crate::logging::new_logger();
     let executor = new_task_executor(log.clone()).await;
 
-    let config = Config::parse();
+    let mut config = Config::parse();
+    if let Some(ref tesntet_dir) = config.testnet_dir {
+        let network = Eth2NetworkConfig::load(tesntet_dir.clone()).unwrap();
+        config.network = Network { network };
+    }
 
     let body_limit_mb = config.body_limit_mb;
     let listen_address = config.listen_address;
