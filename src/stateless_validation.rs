@@ -95,7 +95,7 @@ impl StatelessEngine {
     pub async fn stateless_execution<E: EthSpec>(
         &self,
         new_payload_request: NewPayloadRequest<'_, E>,
-        witness: Witness,
+        witness: &Witness,
     ) -> Result<JsonStatelessPayloadStatusV1, ExecutionLayerError> {
         // Assume that stateless capabilities exist for now
         // let engine_capabilities = self.stateless_engine.get_engine_capabilities(None).await?;
@@ -172,7 +172,7 @@ impl StatelessEngine {
     pub async fn stateless_execution_v2<E: EthSpec>(
         &self,
         execution_payload: ExecutionPayload<E>,
-        witness: Witness,
+        witness: &Witness,
     ) -> Result<JsonStatelessPayloadStatusV1, ExecutionLayerError> {
         let params = json!([JsonExecutionPayload::from(execution_payload), witness]);
 
@@ -194,7 +194,7 @@ impl StatelessEngine {
         execution_payload: ExecutionPayload<E>,
         versioned_hashes: Vec<Hash256>,
         parent_beacon_block_root: Hash256,
-        witness: Witness,
+        witness: &Witness,
     ) -> Result<JsonStatelessPayloadStatusV1, ExecutionLayerError> {
         let params = json!([
             JsonExecutionPayload::from(execution_payload),

@@ -126,7 +126,7 @@ impl<E: EthSpec> Multiplexer<E> {
         let mut result: Option<JsonStatelessPayloadStatusV1> = None;
         for (i, stateless_engine) in self.stateless_engines.iter().enumerate() {
             match stateless_engine
-                .stateless_execution(new_payload_request.clone(), witness.clone())
+                .stateless_execution(new_payload_request.clone(), &witness)
                 .await
             {
                 Err(e) => {
