@@ -14,6 +14,7 @@ use eth2::types::{
 };
 use execution_layer::http::{ENGINE_NEW_PAYLOAD_V1, ENGINE_NEW_PAYLOAD_V2, ENGINE_NEW_PAYLOAD_V3};
 use std::time::{Duration, Instant};
+use tokio::fs;
 
 impl<E: EthSpec> Multiplexer<E> {
     pub async fn handle_controller_new_payload(
@@ -122,6 +123,20 @@ impl<E: EthSpec> Multiplexer<E> {
                 validation_error: status_with_witness.validation_error,
             });
         };
+
+        tracing::info!(
+            "Fetching witness block: {:?}, data: {:?}",
+            new_payload_request.block_number(),
+            serde_json::to_string(&witness).unwrap()
+        );
+        // write into a file with filename <block_number>.json, content witness json string
+        let filename = format!("{}.json", new_payload_request.block_number());
+        fs::write(
+            filename,
+            serde_json::to_string(&witness).unwrap().as_bytes(),
+        )
+        .await
+        .unwrap();
 
         let mut result: Option<JsonStatelessPayloadStatusV1> = None;
         for (i, stateless_engine) in self.stateless_engines.iter().enumerate() {
