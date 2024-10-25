@@ -8,12 +8,13 @@ use crate::{
 };
 use axum::{
     extract::{rejection::JsonRejection, DefaultBodyLimit, State},
-    headers::{authorization::Bearer, Authorization},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
-    Json, Router, TypedHeader,
+    Json, Router,
 };
+use axum_extra::headers::{authorization::Bearer, Authorization};
+use axum_extra::TypedHeader;
 use clap::Parser;
 use config::Network;
 use eth2::types::MainnetEthSpec;
@@ -28,7 +29,7 @@ use execution_layer::http::{
 use slog::Logger;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::runtime::Handle;
+use tokio::{net::TcpListener, runtime::Handle};
 
 mod base_fee;
 mod config;
@@ -81,10 +82,8 @@ async fn main() {
 
     let addr = SocketAddr::from((listen_address, listen_port));
     tracing::debug!("listening on {}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
-        .await
-        .unwrap();
+    let listener = TcpListener::bind(&addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
 
 struct AppState {
@@ -96,7 +95,7 @@ struct AppState {
 // TODO: do something with signal/signal_rx
 async fn new_task_executor(log: Logger) -> TaskExecutor {
     let handle = Handle::current();
-    let (_signal, exit) = async_channel::bounded(1);
+    let (_signal, exit) = async_channel::bounded::<()>(1);
     let (shutdown_tx, _) = futures::channel::mpsc::channel(1);
     TaskExecutor::new(handle, exit, log, shutdown_tx)
 }
