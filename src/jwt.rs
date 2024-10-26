@@ -37,7 +37,7 @@ fn verify_parsed_token(token: UnverifiedToken, secret: &Secret) -> Result<Verifi
 pub fn jwt_secret_from_path(path: &Path) -> Result<Secret, String> {
     std::fs::read_to_string(path)
         .map_err(|e| e.to_string())
-        .and_then(|hex_secret| hex::decode(hex_secret).map_err(|e| e.to_string()))
+        .and_then(|hex_secret| hex::decode(hex_secret.trim()).map_err(|e| e.to_string()))
         .and_then(|byte_secret| Secret::new_from_slice(&byte_secret).map_err(|e| e.to_string()))
         .map_err(|e| format!("Invalid JWT secret at path {}: {e}", path.display()))
 }
